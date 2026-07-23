@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 import { onMounted, computed, watch, ref, onBeforeUnmount } from 'vue'
+import { ExternalLink } from 'lucide-vue-next'
 import { useAdminAuthStore } from '../platform/adminAuthStore'
 import { useActiveSiteStore } from '../platform/activeSiteStore'
 import ToastHost from './components/ToastHost.vue'
@@ -18,7 +19,9 @@ onMounted(async () => {
 
 watch(() => auth.owner?.id, async (id) => { if (id) await activeSites.refresh() })
 
-const navItems = [
+interface NavItem { to: string; label: string; exact?: boolean; premium?: boolean }
+
+const navItems: NavItem[] = [
   { to: '/admin', label: 'Sites', exact: true },
   { to: '/admin/content', label: 'Content' },
   { to: '/admin/inbox', label: 'Inbox' },
@@ -26,18 +29,40 @@ const navItems = [
   { to: '/admin/instagram', label: 'Instagram' },
   { to: '/admin/analytics', label: 'Analytics' },
   { to: '/admin/domain', label: 'Domain' },
+  { to: '/admin/payments', label: 'Payments' },
   { to: '/admin/billing', label: 'Billing' },
   { to: '/admin/deployments', label: 'Deployments' },
 ]
 
+/** Each archetype's premium commerce feature — marked so the nav renders
+    the ★ Premium badge and owners can tell it apart from included tools. */
+const PREMIUM_NAV: Record<string, NavItem> = {
+  keystone: { to: '/admin/appointments', label: 'Appointments', premium: true },
+  hearth:   { to: '/admin/lodging', label: 'Lodging', premium: true },
+  vault:    { to: '/admin/shop', label: 'Shop', premium: true },
+  mesa:     { to: '/admin/ordering', label: 'Ordering', premium: true },
+  marquee:  { to: '/admin/ticketing', label: 'Ticketing', premium: true },
+}
+
+const visibleNavItems = computed<NavItem[]>(() => {
+  const arche = activeSites.sites.find(s => s.id === activeSites.activeId)?.archetype
+  const premium = arche ? PREMIUM_NAV[arche] : undefined
+  return premium ? [...navItems, premium] : navItems
+})
+
 // Don't gate the verify page — it handles its own session flow and must always render.
 const requiresLogin = computed(() => !auth.owner && !auth.loading && route.name !== 'admin-login' && route.name !== 'admin-verify')
-// The Sites tab itself is a multi-site overview, so don't show the dropdown there.
-const showSiteSwitcher = computed(() => !!auth.owner && route.path !== '/admin' && activeSites.sites.length > 0)
+const showSiteSwitcher = computed(() => !!auth.owner && activeSites.sites.length > 0)
 
 const activeSite = computed(() => activeSites.sites.find(s => s.id === activeSites.activeId) ?? null)
 function siteLabel(s: { slug: string; displayName?: string | null }) {
   return (s.displayName && s.displayName.trim()) || s.slug
+}
+/** Live URL for a site: prefer the custom domain, fall back to the production deploy. */
+function siteUrl(s: { customDomain?: string; productionUrl?: string }): string | null {
+  const raw = s.customDomain || s.productionUrl
+  if (!raw) return null
+  return /^https?:\/\//i.test(raw) ? raw : `https://${raw}`
 }
 
 // User menu (account dropdown)
@@ -115,19 +140,35 @@ function initials(email?: string) {
               <span class="site-pill__caret" aria-hidden="true">▾</span>
             </button>
             <div v-if="siteMenuOpen" class="site-menu" role="listbox" @click.stop>
-              <button
+              <div
                 v-for="s in activeSites.sites"
                 :key="s.id"
-                type="button"
-                role="option"
-                :aria-selected="s.id === activeSites.activeId"
-                class="site-menu__item"
-                :class="{ 'site-menu__item--active': s.id === activeSites.activeId }"
-                @click="pickSite(s.id)"
+                class="site-menu__row"
+                :class="{ 'site-menu__row--active': s.id === activeSites.activeId }"
               >
-                <span class="site-menu__name">{{ siteLabel(s) }}</span>
-                <span class="site-menu__meta">{{ s.archetype }}<template v-if="s.displayName && s.displayName !== s.slug"> · {{ s.slug }}</template></span>
-              </button>
+                <button
+                  type="button"
+                  role="option"
+                  :aria-selected="s.id === activeSites.activeId"
+                  class="site-menu__item"
+                  @click="pickSite(s.id)"
+                >
+                  <span class="site-menu__name">{{ siteLabel(s) }}</span>
+                  <span class="site-menu__meta">{{ s.archetype }}<template v-if="s.displayName && s.displayName !== s.slug"> · {{ s.slug }}</template></span>
+                </button>
+                <a
+                  v-if="siteUrl(s)"
+                  :href="siteUrl(s)!"
+                  target="_blank"
+                  rel="noopener"
+                  class="site-menu__view"
+                  :title="`View ${siteLabel(s)} live`"
+                  :aria-label="`View ${siteLabel(s)} live`"
+                  @click.stop
+                >
+                  <ExternalLink :size="14" />
+                </a>
+              </div>
             </div>
           </div>
 
@@ -167,9 +208,11 @@ function initials(email?: string) {
       <nav v-if="auth.owner" class="admin-nav admin-bar__bottom" aria-label="Admin sections">
         <div class="admin-bar__inner admin-bar__inner--bottom">
           <RouterLink
-            v-for="n in navItems" :key="n.to" :to="n.to"
+            v-for="n in visibleNavItems" :key="n.to" :to="n.to"
             :exact-active-class="n.exact ? 'active' : ''" active-class="active"
-          >{{ n.label }}</RouterLink>
+            :class="{ 'nav-premium': n.premium }"
+            :title="n.premium ? 'Premium add-on' : undefined"
+          >{{ n.label }}<span v-if="n.premium" class="nav-premium__star" aria-label="Premium add-on">★</span></RouterLink>
         </div>
       </nav>
     </header>
@@ -192,9 +235,7 @@ function initials(email?: string) {
 <style scoped>
 .admin-shell {
   min-height: 100vh; display: flex; flex-direction: column;
-  background:
-    radial-gradient(1200px 600px at 20% -10%, var(--adm-accent-glow), transparent 60%),
-    var(--adm-bg);
+  background: var(--adm-bg);
   color: var(--adm-text);
   font-family: var(--adm-font-sans);
 }
@@ -238,39 +279,52 @@ function initials(email?: string) {
 .admin-bar__bottom::-webkit-scrollbar-thumb { background: var(--adm-border-strong); border-radius: 2px; }
 
 .brand {
-  display: inline-flex; align-items: center; gap: 0.5rem;
+  display: inline-flex; align-items: center; gap: 0.55rem;
   color: var(--adm-text); text-decoration: none;
-  font-family: var(--adm-font-serif); font-size: 1.05rem;
+  font-family: var(--adm-font-serif); font-size: 1.02rem;
   letter-spacing: -0.005em;
 }
 .brand__mark {
   width: 26px; height: 26px; display: grid; place-items: center;
-  background: linear-gradient(140deg, var(--adm-accent) 0%, var(--adm-accent-deep) 100%);
+  background: var(--adm-accent);
   color: var(--adm-on-accent);
-  border-radius: 6px; font-weight: 700;
-  font-family: var(--adm-font-sans); font-size: 0.78rem;
-  box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+  border-radius: var(--adm-radius-sm); font-weight: 700;
+  font-family: var(--adm-font-mono); font-size: 0.78rem;
 }
 .brand__name { font-weight: 500; }
 .brand__divider { color: var(--adm-text-subtle); margin: 0 0.05rem; }
-.brand__suffix { color: var(--adm-text-muted); font-size: 0.85rem; }
+.brand__suffix {
+  font-family: var(--adm-font-mono);
+  color: var(--adm-text-muted); font-size: 0.68rem;
+  letter-spacing: 0.18em; text-transform: uppercase;
+  transform: translateY(1px);
+}
 
 .admin-nav { display: flex; gap: 0.15rem; }
 .admin-nav a {
   color: var(--adm-text-muted);
   text-decoration: none;
-  padding: 0.4rem 0.8rem;
-  border-radius: 6px;
-  font-size: 0.85rem;
+  padding: 0.45rem 0.7rem 0.5rem;
+  font-size: 0.82rem;
   font-weight: 500;
+  letter-spacing: 0.02em;
   white-space: nowrap;
-  transition: background 140ms, color 140ms;
+  border-bottom: 2px solid transparent;
+  transition: color 140ms, border-color 140ms;
 }
-.admin-nav a:hover { color: var(--adm-text); background: var(--adm-surface); }
+.admin-nav a:hover { color: var(--adm-text); }
 .admin-nav a.active {
   color: var(--adm-text);
-  background: var(--adm-surface-2);
-  box-shadow: inset 0 -2px 0 var(--adm-accent);
+  border-bottom-color: var(--adm-accent);
+}
+/* Premium feature tab — gold-tinted with a star so it reads as an add-on. */
+.admin-nav a.nav-premium { color: var(--adm-accent); font-weight: 600; }
+.admin-nav a.nav-premium:hover { color: var(--adm-accent-deep, var(--adm-accent)); }
+.nav-premium__star {
+  font-size: 0.6rem;
+  margin-left: 0.3rem;
+  vertical-align: super;
+  opacity: 0.9;
 }
 
 /* ── Site switcher (custom pill + popover, mirrors user pill) ───────────── */
@@ -278,9 +332,9 @@ function initials(email?: string) {
 .site-pill {
   display: inline-flex; align-items: center; gap: 0.55rem;
   padding: 0.3rem 0.6rem 0.3rem 0.4rem;
-  background: var(--adm-surface);
+  background: transparent;
   border: 1px solid var(--adm-border-strong);
-  border-radius: 999px;
+  border-radius: var(--adm-radius);
   color: var(--adm-text); cursor: pointer;
   font: inherit; font-size: 0.82rem;
   max-width: 280px;
@@ -291,7 +345,7 @@ function initials(email?: string) {
   border-color: var(--adm-accent-deep);
 }
 .site-pill__mark {
-  width: 24px; height: 24px; border-radius: 6px;
+  width: 24px; height: 24px; border-radius: var(--adm-radius-sm);
   display: grid; place-items: center;
   background: var(--adm-surface-2);
   border: 1px solid var(--adm-border);
@@ -319,18 +373,34 @@ function initials(email?: string) {
   z-index: 100;
   max-height: 60vh; overflow-y: auto;
 }
+.site-menu__row {
+  display: flex; align-items: stretch; gap: 2px;
+  border-radius: 6px;
+}
+.site-menu__row--active { background: color-mix(in srgb, var(--adm-accent) 10%, transparent); }
 .site-menu__item {
   display: flex; flex-direction: column; align-items: flex-start; gap: 0.1rem;
-  width: 100%; text-align: left;
+  flex: 1; min-width: 0; text-align: left;
   padding: 0.5rem 0.65rem;
   background: transparent; border: 0; border-radius: 6px;
   color: var(--adm-text); font: inherit; font-size: 0.85rem;
   cursor: pointer;
 }
 .site-menu__item:hover { background: var(--adm-surface-2); }
-.site-menu__item--active { background: color-mix(in srgb, var(--adm-accent) 10%, transparent); }
-.site-menu__item--active:hover { background: color-mix(in srgb, var(--adm-accent) 14%, transparent); }
-.site-menu__name { font-weight: 600; }
+.site-menu__row--active .site-menu__item:hover { background: color-mix(in srgb, var(--adm-accent) 14%, transparent); }
+.site-menu__view {
+  flex: 0 0 auto; width: 34px;
+  display: grid; place-items: center;
+  border-radius: 6px;
+  color: var(--adm-text-muted);
+  transition: background 120ms ease, color 120ms ease;
+}
+.site-menu__view:hover { background: var(--adm-surface-2); color: var(--adm-accent); }
+.site-menu__name {
+  font-weight: 600;
+  max-width: 100%;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 .site-menu__meta { color: var(--adm-text-muted); font-size: 0.74rem; letter-spacing: 0.04em; }
 
 /* ── User pill + menu ──────────────────────────────────── */
@@ -339,9 +409,9 @@ function initials(email?: string) {
 .user-pill {
   display: inline-flex; align-items: center; gap: 0.5rem;
   padding: 0.3rem 0.55rem 0.3rem 0.3rem;
-  background: var(--adm-surface);
+  background: transparent;
   border: 1px solid var(--adm-border-strong);
-  border-radius: 999px;
+  border-radius: var(--adm-radius);
   color: var(--adm-text); cursor: pointer;
   font: inherit; font-size: 0.82rem;
   transition: background 140ms, border-color 140ms;
@@ -351,10 +421,12 @@ function initials(email?: string) {
   border-color: var(--adm-accent-deep);
 }
 .user-pill__avatar {
-  width: 24px; height: 24px; border-radius: 50%;
+  width: 24px; height: 24px; border-radius: var(--adm-radius-sm);
   display: grid; place-items: center;
-  background: linear-gradient(140deg, var(--adm-accent) 0%, var(--adm-accent-deep) 100%);
-  color: var(--adm-on-accent); font-weight: 700; font-size: 0.7rem;
+  background: var(--adm-surface-3);
+  border: 1px solid var(--adm-border-strong);
+  color: var(--adm-accent); font-weight: 700; font-size: 0.66rem;
+  font-family: var(--adm-font-mono);
 }
 .user-pill__email { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .user-pill__caret { color: var(--adm-text-subtle); font-size: 0.7rem; }
