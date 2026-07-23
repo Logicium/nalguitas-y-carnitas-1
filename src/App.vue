@@ -6,6 +6,7 @@ import { useSiteTheme } from '@apotome/archetype-shared/composables/useSiteTheme
 import { useImagePreload } from '@apotome/archetype-shared/composables/useImagePreload'
 import { useApScrollbar } from '@apotome/archetype-shared/composables/useApScrollbar'
 import { usePreferences } from '@apotome/archetype-shared/composables/usePreferences'
+import { variantAtLeast } from '@apotome/archetype-shared/themes/tokens'
 import AppHeader from '@apotome/archetype-shared/components/layout/AppHeader.vue'
 import AppFooter from '@apotome/archetype-shared/components/layout/AppFooter.vue'
 import AppLoader from '@apotome/archetype-shared/components/AppLoader.vue'
@@ -17,11 +18,16 @@ const { isReady, progress, loaded, total, label, preloadCritical } = useImagePre
 onMounted(async () => {
   initFromConfig(siteConfig, 'dine')
   useApScrollbar()
-  await preloadCritical([
-    siteConfig.photos.hero.src,
-    siteConfig.photos.about.src,
-    ...siteConfig.photos.gallery.map(p => p.src),
-  ])
+  try {
+    await preloadCritical([
+      siteConfig.photos.hero.src,
+      siteConfig.photos.about.src,
+      ...siteConfig.photos.gallery.map(p => p.src),
+    ])
+  } catch {
+    // Malformed hydrated content must never strand the splash screen.
+    await preloadCritical([])
+  }
 })
 
 const showSwitcher = usePreferences().themePickerVisible
@@ -32,7 +38,7 @@ const navLinks = computed(() => {
     { to: '/menu', label: 'Menu' },
     { to: '/visit', label: 'Visit' },
   ]
-  if (siteConfig.variant === 'portfolio') {
+  if (variantAtLeast(siteConfig.variant, 'portfolio')) {
     base.splice(2, 0, { to: '/gallery', label: 'Gallery' })
   }
   return base
