@@ -1,7 +1,9 @@
 ﻿<script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, useTemplateRef } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
+import { LayoutDashboard } from 'lucide-vue-next'
 import { useSiteTheme } from '../../composables/useSiteTheme'
+import BrandMark from '../BrandMark.vue'
 
 defineProps<{
   brand: string
@@ -9,6 +11,11 @@ defineProps<{
   links: Array<{ to: string; label: string }>
   ctaLabel?: string
   ctaTo?: string
+  /** Optional secondary action rendered as a ghost button before the CTA (e.g. Log in / Dashboard). */
+  secondaryLabel?: string
+  secondaryTo?: string
+  /** Render the secondary action as a bordered icon-only button (label becomes the tooltip / aria-label). */
+  secondaryIcon?: boolean
 }>()
 
 const route = useRoute()
@@ -80,8 +87,11 @@ onUnmounted(() => {
   >
     <div class="ap-container ap-header__row">
       <RouterLink to="/" class="ap-header__brand" @click="open = false">
-        <span class="ap-header__brand-name">{{ brand }}</span>
-        <span v-if="tagline" class="ap-header__brand-tag">{{ tagline }}</span>
+        <BrandMark class="ap-header__brand-icon" :size="36" />
+        <span class="ap-header__brand-text">
+          <span class="ap-header__brand-name">{{ brand }}</span>
+          <span v-if="tagline" class="ap-header__brand-tag">{{ tagline }}</span>
+        </span>
       </RouterLink>
 
       <button
@@ -102,6 +112,17 @@ onUnmounted(() => {
           :class="{ 'is-active': route.path === link.to }"
         >
           {{ link.label }}
+        </RouterLink>
+        <RouterLink
+          v-if="secondaryLabel && secondaryTo"
+          :to="secondaryTo"
+          class="ap-btn ap-btn--ghost ap-header__cta ap-header__secondary"
+          :class="{ 'ap-header__secondary--icon': secondaryIcon }"
+          :aria-label="secondaryLabel"
+          :title="secondaryIcon ? secondaryLabel : undefined"
+        >
+          <LayoutDashboard v-if="secondaryIcon" :size="18" :stroke-width="1.8" />
+          <template v-else>{{ secondaryLabel }}</template>
         </RouterLink>
         <RouterLink v-if="ctaLabel && ctaTo" :to="ctaTo" class="ap-btn ap-header__cta">
           {{ ctaLabel }}
@@ -144,8 +165,14 @@ onUnmounted(() => {
   padding-top: 1rem; padding-bottom: 1rem; gap: 1.5rem;
 }
 .ap-header__brand {
-  display: flex; flex-direction: column; line-height: 1;
+  display: flex; flex-direction: row; align-items: center; gap: 0.7rem;
   color: var(--ap-ink); border-bottom: none;
+}
+.ap-header__brand-icon {
+  width: 36px; height: 36px; display: block; flex: none;
+}
+.ap-header__brand-text {
+  display: flex; flex-direction: column; line-height: 1;
 }
 .ap-header__brand-name {
   font-family: var(--ap-font-heading);
@@ -174,6 +201,13 @@ onUnmounted(() => {
   height: 2px; background: var(--ap-primary);
 }
 .ap-header__cta { padding: 0.6rem 1.1rem; font-size: 0.85rem; }
+/* Icon-only secondary (e.g. Dashboard): square bordered button, icon centered. */
+.ap-header__secondary--icon {
+  padding: 0.55rem;
+  aspect-ratio: 1;
+  justify-content: center;
+}
+.ap-header__secondary--icon :deep(svg) { display: block; }
 
 .ap-header__toggle {
   display: none; background: none; border: 0;
